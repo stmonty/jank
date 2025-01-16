@@ -18,6 +18,10 @@ set(CMAKE_MODULE_PATH
 # LTO is explicitly not used, since it leads to runtime symbol lookup issues with the JIT.
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
+# Enable static build
+option(ENABLE_STATIC_LINKING "Build static executables and libraries" OFF)
+option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
+
 project(
     jank
     VERSION 0.1
@@ -255,25 +259,72 @@ set_property(TARGET jank_lib PROPERTY OUTPUT_NAME jank)
 target_compile_features(jank_lib PUBLIC ${jank_cxx_standard})
 target_compile_options(jank_lib PUBLIC ${jank_common_compiler_flags} ${jank_aot_compiler_flags})
 
+if(ENABLE_STATIC_LINKING)
+    # Prefer static libs over shared ones
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".so")
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    
+    # Append global static linker flags for executables
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
+    
+    # Set position independent code flag
+    set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
+    
+    # Ask packages like Boost to use static libs
+    set(Boost_USE_STATIC_LIBS ON)
+  endif()
+  
 include(FetchContent)
 include(cmake/dependency/bdwgc.cmake)
 include(cmake/dependency/fmt.cmake)
 include(cmake/dependency/libzippp.cmake)
 
-find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+if(ENABLE_STATIC_LINKING)
+  find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+else()
+  find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+endif()
+
 find_package(Boost REQUIRED COMPONENTS filesystem)
 
-target_link_libraries(
-  jank_lib PRIVATE
-  fmt::fmt
-  bdwgc::gc bdwgc::gccpp
-  libzippp::libzippp
-  libclang.so
-  libclang-cpp.so
-  libLLVM.so
-  Boost::filesystem
-  OpenSSL::Crypto
-)
+if(ENABLE_STATIC_LINKING)
+  target_link_libraries(
+    jank_lib PRIVATE
+    fmt::fmt
+    bdwgc::gc bdwgc::gccpp
+    libzippp::libzippp
+    libclang.a
+    libclang-cpp.a
+    libLLVM.a
+    Boost::filesystem
+    OpenSSL::Crypto
+    -static
+  )
+else()
+  target_link_libraries(
+    jank_lib PRIVATE
+    fmt::fmt
+    bdwgc::gc bdwgc::gccpp
+    libzippp::libzippp
+    libclang.so
+    libclang-cpp.so
+    libLLVM.so
+    Boost::filesystem
+    OpenSSL::Crypto
+  )
+endif()
+
+# target_link_libraries(
+#   jank_lib PRIVATE
+#   fmt::fmt
+#   bdwgc::gc bdwgc::gccpp
+#   libzippp::libzippp
+#   libclang.so
+#   libclang-cpp.so
+#   libLLVM.so
+#   Boost::filesystem
+#   OpenSSL::Crypto
+# )
 
 jank_hook_llvm(jank_lib)
 
@@ -392,6 +443,7 @@ set_target_properties(folly_lib PROPERTIES ENABLE_EXPORTS 1)
 target_link_libraries(
   folly_lib PUBLIC
   fmt::fmt
+  -static
 )
 # ---- libfolly.a ----
 
@@ -418,6 +470,7 @@ target_link_libraries(
   folly_lib
   fmt::fmt
   Boost::filesystem
+  -static
 )
 
 jank_hook_llvm(jank_exe)
